@@ -98,8 +98,8 @@ def setup_and_solve_hf(nsites,nparticles,pairs,t,V,old_one_body):
     for pair in pairs: 
         i=pair[0]
         j=pair[1]
-        total_energy+= (-1.0*new_one_body[i,i]*new_one_body[j,j]) # From Hartree term
-        total_energy+= (1.0*new_one_body[i,j]*new_one_body[j,i])      # From Fock term
+        total_energy+= (-V*new_one_body[i,i]*new_one_body[j,j]) # From Hartree term
+        total_energy+= (V*new_one_body[i,j]*new_one_body[j,i])      # From Fock term
 
     return total_energy.real,new_one_body
 #############################################################################
