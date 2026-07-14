@@ -4,6 +4,9 @@ import sys
 import numpy as N
 import pylab
 
+
+#############################################################################
+#Code by Hitesh J C, July 14, 2026
 #############################################################################
 def make_bravais_lattice(L1,L2,vec1,vec2):
     coords=[]
@@ -61,12 +64,12 @@ def setup_and_solve_hf(nsites,nparticles,pairs,t,V,old_one_body):
     for pair in pairs:
         site1=pair[0]
         site2=pair[1]
-        hf[site1,site1]+=(V*old_one_body[site2,site2])
-        hf[site2,site2]+=(V*old_one_body[site1,site1])
-        hf[site1,site2]= -t
-        hf[site2,site1]= -t
-        hf[site1,site2]+= (-V)*old_one_body[site2,site1] 
-        hf[site2,site1]+= (-V)*old_one_body[site1,site2] 
+        hf[site1,site1]+=(V*old_one_body[site2,site2]) # Hartree term
+        hf[site2,site2]+=(V*old_one_body[site1,site1]) # Hartree term
+        hf[site1,site2]= -t                            # Bare hopping
+        hf[site2,site1]= -t                            # Bare hopping
+        hf[site1,site2]+= (-V)*old_one_body[site2,site1] # Fock exchange 
+        hf[site2,site1]+= (-V)*old_one_body[site1,site2] # Fock exchange
     
     eigs,vecs=N.linalg.eigh(hf)
     #print(eigs)
@@ -92,15 +95,18 @@ def setup_and_solve_hf(nsites,nparticles,pairs,t,V,old_one_body):
     for e in range(len(eigs)):
             if (eigs[e]<=ef or abs(eigs[e]-ef)<1.0e-7): total_energy+=eigs[e]
    
-    #for i in range(nsites): print(i,old_one_body[i,i],new_one_body[i,i])
-    #stop
+    for pair in pairs: 
+        i=pair[0]
+        j=pair[1]
+        total_energy+= (-1.0*new_one_body[i,i]*new_one_body[j,j]) # From Hartree term
+        total_energy+= (1.0*new_one_body[i,j]*new_one_body[j,i])      # From Fock term
 
     return total_energy.real,new_one_body
 #############################################################################
 
 def get_error(nsites,new_one_body,old_one_body):
     err=0.0
-    for i in range(nsites):err+=abs(new_one_body[i,i]-old_one_body[i,i])**2.0
+    for i in range(nsites):err+=abs(new_one_body[i,i]-old_one_body[i,i])**2.0  # We are just computing error in densities
     return N.sqrt(err)
 
 #############################################################################
