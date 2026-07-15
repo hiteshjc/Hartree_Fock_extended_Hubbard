@@ -83,7 +83,7 @@ def setup_and_solve_hf(nsites,nparticles,pairs,t,V,old_one_body):
             # Onsite densities
             for site in range(nsites): 
                 new_one_body[site,site]+=(abs(vecs[site,e])**2.0)
-            # Compute NN one body density matrix - do not need other elements
+            # Compute NN one body density matrix - for only the bonds, other terms not needed at this stage
             for pair in pairs:
                 site1=pair[0]
                 site2=pair[1]
@@ -132,7 +132,7 @@ def compute_full_one_body_and_ninj(nsites,nparticles,pairs,t,V,old_one_body):
             # Onsite densities
             for site in range(nsites): 
                 new_one_body[site,site]+=(abs(vecs[site,e])**2.0)
-            # Compute NN one body density matrix - do not need other elements
+            # Compute NN one body density matrix - for all pairs of sites
             for site1 in range(nsites):
                 for site2 in range(site1+1,nsites):
                     new_one_body[site1,site2]+=(N.conjugate(vecs[site1,e])*(vecs[site2,e]))
