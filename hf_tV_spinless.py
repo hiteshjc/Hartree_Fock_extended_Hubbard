@@ -56,8 +56,6 @@ def make_bravais_lattice(L1,L2,vec1,vec2):
             #if (abs(dist-1.0)<1.0e-10 or abs(dist-(L1-1))<1.0e-10 or abs(dist-(L2-1))<1.0e-10):nearest_neighbor_pairs.append([i,j])  # Open BC
     return coords,nearest_neighbor_pairs
 #############################################################################
-
-
 def setup_and_solve_hf(nsites,nparticles,pairs,t,V,old_one_body):
     
     hf=N.zeros((nsites,nsites),dtype=complex)
@@ -78,30 +76,93 @@ def setup_and_solve_hf(nsites,nparticles,pairs,t,V,old_one_body):
 
     # Decide the fermi energy
     ef=eigs[nparticles-1]
-    
-    for site in range(nsites):
-        for e in range(nsites):
-            if (eigs[e]<=ef or abs(eigs[e]-ef)<1.0e-7): new_one_body[site,site]+=(abs(vecs[site,e])**2.0)
-                
-    for pair in pairs:
-        site1=pair[0]
-        site2=pair[1]
-        for e in range(nsites):
-            if (eigs[e]<=ef or abs(eigs[e]-ef)<1.0e-7):
+    total_energy=0.0
+   
+    for e in range(nsites):
+        if (eigs[e]<=ef or abs(eigs[e]-ef)<1.0e-7): # check condition once then update many things 
+            # Onsite densities
+            for site in range(nsites): 
+                new_one_body[site,site]+=(abs(vecs[site,e])**2.0)
+            # Compute NN one body density matrix - do not need other elements
+            for pair in pairs:
+                site1=pair[0]
+                site2=pair[1]
                 new_one_body[site1,site2]+=(N.conjugate(vecs[site1,e])*(vecs[site2,e]))
                 new_one_body[site2,site1]+=(N.conjugate(vecs[site2,e])*(vecs[site1,e]))
-    
-    total_energy=0.0
-    for e in range(len(eigs)):
-            if (eigs[e]<=ef or abs(eigs[e]-ef)<1.0e-7): total_energy+=eigs[e]
-   
+            # Total energy = sum of HF eigenvalues and constant terms
+            total_energy+=eigs[e]
+
+    # Constant terms
     for pair in pairs: 
         i=pair[0]
         j=pair[1]
         total_energy+= (-V*new_one_body[i,i]*new_one_body[j,j]) # From Hartree term
-        total_energy+= (V*new_one_body[i,j]*new_one_body[j,i])      # From Fock term
+        total_energy+= (V*new_one_body[i,j]*new_one_body[j,i])  # From Fock term
 
     return total_energy.real,new_one_body
+#############################################################################
+
+def compute_full_one_body_and_ninj(nsites,nparticles,pairs,t,V,old_one_body):
+    
+    hf=N.zeros((nsites,nsites),dtype=complex)
+    for pair in pairs:
+        site1=pair[0]
+        site2=pair[1]
+        hf[site1,site1]+=(V*old_one_body[site2,site2]) # Hartree term
+        hf[site2,site2]+=(V*old_one_body[site1,site1]) # Hartree term
+        hf[site1,site2]= -t                            # Bare hopping
+        hf[site2,site1]= -t                            # Bare hopping
+        hf[site1,site2]+= (-V)*old_one_body[site2,site1] # Fock exchange 
+        hf[site2,site1]+= (-V)*old_one_body[site1,site2] # Fock exchange
+    
+    eigs,vecs=N.linalg.eigh(hf)
+    #print(eigs)
+
+    new_one_body=N.zeros((nsites,nsites),dtype=complex)
+    hartree=N.zeros((nsites,nsites),dtype=complex)
+    fock=N.zeros((nsites,nsites),dtype=complex)
+    den_den=N.zeros((nsites,nsites),dtype=complex)
+
+    # Decide the fermi energy
+    ef=eigs[nparticles-1]
+    total_energy=0.0
+   
+    for e in range(nsites):
+        if (eigs[e]<=ef or abs(eigs[e]-ef)<1.0e-7): # check condition once then update many things 
+            # Onsite densities
+            for site in range(nsites): 
+                new_one_body[site,site]+=(abs(vecs[site,e])**2.0)
+            # Compute NN one body density matrix - do not need other elements
+            for site1 in range(nsites):
+                for site2 in range(site1+1,nsites):
+                    new_one_body[site1,site2]+=(N.conjugate(vecs[site1,e])*(vecs[site2,e]))
+                    new_one_body[site2,site1]+=(N.conjugate(vecs[site2,e])*(vecs[site1,e]))
+            # Total energy = sum of HF eigenvalues and constant terms
+            total_energy+=eigs[e]
+
+    # Constant terms
+    for pair in pairs: 
+        i=pair[0]
+        j=pair[1]
+        total_energy+= (-V*new_one_body[i,i]*new_one_body[j,j]) # From Hartree term
+        total_energy+= (V*new_one_body[i,j]*new_one_body[j,i])  # From Fock term
+
+    # Compute hartree, fock and den_den
+    for site1 in range(nsites):
+        hartree[site1,site1]=new_one_body[site1,site1]
+        fock[site1,site1]=0.0
+        den_den[site1,site1]=new_one_body[site1,site1]
+        for site2 in range(site1+1,nsites):
+            hartree[site1,site2]=(new_one_body[site1,site1]*new_one_body[site2,site2])
+            fock[site1,site2]=(-1.0*new_one_body[site1,site2]*new_one_body[site2,site1])
+            den_den[site1,site2]=hartree[site1,site2]+fock[site1,site2]
+            
+            hartree[site2,site1]=hartree[site1,site2]
+            fock[site2,site1]=fock[site1,site2]
+            den_den[site2,site1]=den_den[site1,site2]
+
+    return total_energy.real,new_one_body,hartree,fock,den_den
+
 #############################################################################
 
 def get_error(nsites,new_one_body,old_one_body):
@@ -155,7 +216,7 @@ for pair in pairs:
     initial_hopping_matrix[pair[0],pair[1]]=-t
     initial_hopping_matrix[pair[1],pair[0]]=-t
 elowest=100000
-maxiter=3000
+maxiter=501
 
 #################################################
 # TRY HF multiple times and take the best result
@@ -165,7 +226,7 @@ for ntries in range(1):
     print("Ntry = ",ntries)
     densities=N.zeros((nsites),dtype=float)
     # Initialize hopping and diagonals
-    for i in range(nsites): densities[i]=filling+(0.2*(2*N.random.random()-1))
+    for i in range(nsites): densities[i]=filling+(0.0*(2*N.random.random()-1))
     #for i in range(nsites): densities[i]=filling
     total_number=sum(densities)
     old_one_body=copy.deepcopy(initial_hopping_matrix)  
@@ -195,22 +256,22 @@ for ntries in range(1):
 ###########################
 # Print the densities
 ###########################
-print("Lowest energy = ",elowest)
-print("Bond")
-for pair in pairs:   
-    site1=pair[0]
-    site2=pair[1]
-    hartree=best_one_body[site1,site1]*best_one_body[site2,site2]
-    fock=best_one_body[site1,site2]*best_one_body[site2,site1]
-    print("%3d %3d %+5.15f %+5.15f" %(site1,site2,hartree,fock))
+total_energy,best_one_body,hartree,fock,den_den=compute_full_one_body_and_ninj(nsites,nparticles,pairs,t,V,best_one_body)
+print("Lowest energy = ",total_energy)
+#stop
+print("")
+print("Site1(i)    Site2(j)       <cidagcj> real   <cidagcj> imag         Hartree=<ni><nj>      Fock=<cidagcj><cjdagci>       <ninj>=<ni><nj>-<cidagcj><cjdagci>")
+for site1 in range(nsites):
+    for site2 in range(nsites):
+        print("%3d %3d %+5.15f %+5.15f %+5.15f %+5.15f %+5.15f" %(site1,site2,best_one_body[site1,site2].real,best_one_body[site1,site2].imag, hartree[site1,site2].real,fock[site1,site2].real,den_den[site1,site2].real))
 print("Site      x                       y                    <n>")
 total_charge=0.0
 for i in range(nsites):
     x=coords[i][2]
     y=coords[i][3]
-    print("%3d  %+5.15f %+5.15f %+5.15f" %(i,x,y,best_one_body[i,i]))
+    print("%3d  %+5.15f %+5.15f %+5.15f" %(i,x,y,best_one_body[i,i].real))
     total_charge+=best_one_body[i,i]
-    pylab.scatter(x,y,marker="o",s=best_one_body[i,i]*100,color="black")
+    pylab.scatter(x,y,marker="o",s=best_one_body[i,i].real*100,color="black")
 print("Total charge =",total_charge)
 pylab.show()
 #print("Nu_tot=",round(sum(best_up_densities),2),"Nd_tot=",round(sum(best_down_densities),2))
