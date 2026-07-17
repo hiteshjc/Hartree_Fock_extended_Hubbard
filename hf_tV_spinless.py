@@ -2,8 +2,9 @@ import os
 import copy
 import sys
 import numpy as N
-import pylab
 
+def model_func(x, a, b):
+    return a * (N.power(abs(x),b))
 
 #############################################################################
 #Code by Hitesh J C, July 14, 2026
@@ -55,6 +56,21 @@ def make_bravais_lattice(L1,L2,vec1,vec2):
             if (abs(dist-1.0)<1.0e-10):nearest_neighbor_pairs.append([i,j]) 
             #if (abs(dist-1.0)<1.0e-10 or abs(dist-(L1-1))<1.0e-10 or abs(dist-(L2-1))<1.0e-10):nearest_neighbor_pairs.append([i,j])  # Open BC
     return coords,nearest_neighbor_pairs
+
+#############################################################################
+
+def allowed_momenta_triangular(L1,L2):
+    allowedk=[]
+    print("Allowed momenta")
+    for m in range(-10*max(L1,L2),10*max(L1,L2)+1):
+        kx=2*m*N.pi/L1
+        for n in range(-10*max(L1,L2),10*max(L1,L2)+1):
+            ky=(4.*n*N.pi/(L2*N.sqrt(3.0))) - (2.*m*N.pi/(L1*N.sqrt(3.0)))
+            if (abs(kx)<=2*N.pi and abs(ky)<=2*N.pi):
+                allowedk.append([kx,ky])
+                print("%3d %3d %+5.15f %+5.15f" %(m,n,kx,ky))
+    return allowedk
+
 #############################################################################
 def setup_and_solve_hf(nsites,nparticles,pairs,t,V,old_one_body):
     
@@ -82,7 +98,7 @@ def setup_and_solve_hf(nsites,nparticles,pairs,t,V,old_one_body):
         if (eigs[e]<=ef or abs(eigs[e]-ef)<1.0e-7): # check condition once then update many things 
             # Onsite densities
             for site in range(nsites): 
-                new_one_body[site,site]+=(abs(vecs[site,e])**2.0)
+                new_one_body[site,site]+=(N.power(abs(vecs[site,e]),2.0))
             # Compute NN one body density matrix - for only the bonds, other terms not needed at this stage
             for pair in pairs:
                 site1=pair[0]
@@ -131,7 +147,7 @@ def compute_full_one_body_and_ninj(nsites,nparticles,pairs,t,V,old_one_body):
         if (eigs[e]<=ef or abs(eigs[e]-ef)<1.0e-7): # check condition once then update many things 
             # Onsite densities
             for site in range(nsites): 
-                new_one_body[site,site]+=(abs(vecs[site,e])**2.0)
+                new_one_body[site,site]+=(N.power(abs(vecs[site,e]),2.0))
             # Compute NN one body density matrix - for all pairs of sites
             for site1 in range(nsites):
                 for site2 in range(site1+1,nsites):
@@ -194,9 +210,13 @@ V=float(sys.argv[3])
 L1=int(sys.argv[4])
 L2=int(sys.argv[5])
 seed=int(sys.argv[6])
+maxiter=int(sys.argv[7])
+elowest=100000
+
+
 N.random.seed(seed)
 nsites=L1*L2
-nparticles=int(filling*nsites)
+nparticles=int((filling*nsites)+1.0e-6)
 print("Nparticles = ",nparticles)
 #initialize HF in real space
 coords,pairs=make_bravais_lattice(L1,L2,vec1,vec2)
@@ -215,8 +235,6 @@ for pair in pairs:
     # HOPS
     initial_hopping_matrix[pair[0],pair[1]]=-t
     initial_hopping_matrix[pair[1],pair[0]]=-t
-elowest=100000
-maxiter=501
 
 #################################################
 # TRY HF multiple times and take the best result
@@ -226,9 +244,10 @@ for ntries in range(1):
     print("Ntry = ",ntries)
     densities=N.zeros((nsites),dtype=float)
     # Initialize hopping and diagonals
-    for i in range(nsites): densities[i]=filling+(0.0*(2*N.random.random()-1))
+    for i in range(nsites): densities[i]=(nparticles/nsites)+(0.0*(2*N.random.random()-1))
     #for i in range(nsites): densities[i]=filling
     total_number=sum(densities)
+    print("Total number = ",total_number)
     old_one_body=copy.deepcopy(initial_hopping_matrix)  
     new_one_body=N.zeros((nsites,nsites),dtype=complex)
     rescale_factor=nparticles/total_number
@@ -236,34 +255,37 @@ for ntries in range(1):
     
     # Iterate - Use the old cidag cj to set up the new matrix 
     do_next=True
+    alpha=0.25
     for iteration in range(maxiter):
         if (do_next):
             total_energy,new_one_body=setup_and_solve_hf(nsites,nparticles,pairs,t,V,old_one_body)
             temp_one_body=N.zeros((nsites,nsites),dtype=complex)
-            if(iteration>=2):
+            if(iteration>=1):
                 for i in range(nsites):
                     for j in range(nsites):
-                        temp_one_body[i,j]=(0.25*new_one_body[i,j])+(0.75*old_one_body[i,j])
-            if (iteration<2): temp_one_body=copy.deepcopy(new_one_body)
+                        temp_one_body[i,j]=(alpha*new_one_body[i,j])+((1-alpha)*(old_one_body[i,j]))
+            else: temp_one_body=copy.deepcopy(new_one_body)
             err = get_error(nsites,temp_one_body,old_one_body)
             if ((iteration%100==0 or iteration==1) and iteration!=0): print("Iter,Total_energy, Err = ",iteration,",",total_energy,",",err)
             if (iteration>1000 and err>1): do_next=False
             if (do_next): old_one_body=copy.deepcopy(temp_one_body)
-    if ((total_energy<elowest and err<1.0e-2) or (iteration<=2)):
+    
+    if ((total_energy<elowest and err<1.0e-2) or (iteration<=1)):
         best_one_body=copy.deepcopy(new_one_body)
         elowest=total_energy
 
 ###########################
-# Print the densities
+# Print the real densities
 ###########################
 total_energy,best_one_body,hartree,fock,den_den=compute_full_one_body_and_ninj(nsites,nparticles,pairs,t,V,best_one_body)
 print("Lowest energy = ",total_energy)
 #stop
 print("")
-print("Site1(i)    Site2(j)       <cidagcj> real   <cidagcj> imag         Hartree=<ni><nj>      Fock=<cidagcj><cjdagci>       <ninj>=<ni><nj>-<cidagcj><cjdagci>")
+print("Site1(i)    Site2(j)       <cidagcj> real   <cidagcj> imag         Hartree=<ni><nj>      Fock=-<cidagcj><cjdagci>       <ninj>=<ni><nj>-<cidagcj><cjdagci>")
 for site1 in range(nsites):
     for site2 in range(nsites):
         print("%3d %3d %+5.15f %+5.15f %+5.15f %+5.15f %+5.15f" %(site1,site2,best_one_body[site1,site2].real,best_one_body[site1,site2].imag, hartree[site1,site2].real,fock[site1,site2].real,den_den[site1,site2].real))
+print("")
 print("Site      x                       y                    <n>")
 total_charge=0.0
 for i in range(nsites):
@@ -271,8 +293,38 @@ for i in range(nsites):
     y=coords[i][3]
     print("%3d  %+5.15f %+5.15f %+5.15f" %(i,x,y,best_one_body[i,i].real))
     total_charge+=best_one_body[i,i]
-    pylab.scatter(x,y,marker="o",s=best_one_body[i,i].real*100,color="black")
 print("Total charge =",total_charge)
-pylab.show()
-#print("Nu_tot=",round(sum(best_up_densities),2),"Nd_tot=",round(sum(best_down_densities),2))
-#print("Sx2+Sy2+Sz2 = ",totsx*totsx + totsy*totsy + totsz*totsz)
+
+allowedk=allowed_momenta_triangular(L1,L2)
+print("")
+print("#kx ky S(k)=FT of <ninj> - <ni><nj>")
+for k in allowedk:
+    sk=0
+    kx=k[0]
+    ky=k[1]
+    for i in range(nsites):
+        xi=coords[i][2]
+        yi=coords[i][3]
+        sk+=(den_den[i,i])-(best_one_body[i,i]*best_one_body[i,i])
+        for j in range(nsites):
+            xj=coords[j][2]
+            yj=coords[j][3]
+            if (i!=j): 
+                sk+=(N.exp(complex(0,1)*((kx*(xi-xj))+(ky*(yi-yj))))*(fock[i,j]))
+    print("%+5.15f %+5.15f %+5.15f" %(kx,ky,sk.real/nsites))
+
+print("")
+print("#kx ky n(k)")
+for k in allowedk:
+    nk=0
+    kx=k[0]
+    ky=k[1]
+    for i in range(nsites):
+        xi=coords[i][2]
+        yi=coords[i][3]
+        for j in range(nsites):
+            xj=coords[j][2]
+            yj=coords[j][3]
+            nk+=(N.exp(complex(0,1)*((kx*(xi-xj))+(ky*(yi-yj))))*(best_one_body[i,j]))
+    print("%+5.15f %+5.15f %+5.15f" %(kx,ky,nk.real/nsites))
+
